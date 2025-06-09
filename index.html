@@ -5,6 +5,7 @@
   <title>MIDI Piano with WebAudioFont</title>
   <script src="https://surikov.github.io/webaudiofont/npm/dist/WebAudioFontPlayer.js"></script>
   <script src="https://surikov.github.io/webaudiofontdata/sound/0000_JCLive_sf2_file.js"></script>
+  <script src="https://unpkg.com/vexflow@1.2.90/releases/vexflow-min.js"></script>
   <style>
     body {
       font-family: sans-serif;
@@ -86,6 +87,15 @@
     .key.active {
       box-shadow: 0 0 8px 2px yellow;
     }
+
+    #staff {
+      margin: 20px auto;
+      width: 500px;
+      background: #fff;
+      border: 1px solid #ccc;
+      border-radius: 5px;
+      padding: 10px;
+    }
   </style>
 </head>
 <body>
@@ -97,133 +107,158 @@
 <div class="keyboard-wrapper">
   <div class="keyboard" id="keyboard"></div>
 </div>
+<div id="staff"></div>
 
 <script>
-  const context = new AudioContext();
-  const player = new WebAudioFontPlayer();
-  const pianoPreset = _tone_0000_JCLive_sf2_file;
+  window.addEventListener("DOMContentLoaded", () => {
+    const context = new AudioContext();
+    const player = new WebAudioFontPlayer();
+    const pianoPreset = _tone_0000_JCLive_sf2_file;
+    let statusText = document.getElementById("status");
+    let overlay = document.getElementById("start-overlay");
 
-  let statusText = document.getElementById("status");
-  let overlay = document.getElementById("start-overlay");
+    console.log("AudioContext initial state:", context.state);
 
-  console.log("AudioContext initial state:", context.state);
-
-  function blinkLight() {
-    const light = document.getElementById("midi-light");
-    light.style.backgroundColor = "lime";
-    setTimeout(() => light.style.backgroundColor = "gray", 100);
-  }
-
-  function playNote(note, velocity) {
-    if (context.state !== "running") {
-      console.log("Blocked playNote: AudioContext not running.");
-      return;
+    function blinkLight() {
+      const light = document.getElementById("midi-light");
+      light.style.backgroundColor = "lime";
+      setTimeout(() => light.style.backgroundColor = "gray", 100);
     }
-    console.log("playNote called with note:", note, "velocity:", velocity);
-    player.queueWaveTable(context, context.destination, pianoPreset, context.currentTime, note, 0.75, velocity / 127);
-    highlightKey(note);
-  }
 
-  function onMIDIMessage(event) {
-    const [status, note, velocity] = event.data;
-    console.log("MIDI message:", event.data);
-    if (status === 144 && velocity > 0) {
-      blinkLight();
-      playNote(note, velocity);
-    }
-  }
-
-  navigator.requestMIDIAccess()
-    .then((access) => {
-      for (let input of access.inputs.values()) {
-        input.onmidimessage = onMIDIMessage;
-        console.log("Connected to MIDI input:", input.name);
+    function playNote(note, velocity) {
+      if (context.state !== "running") {
+        console.log("Blocked playNote: AudioContext not running.");
+        return;
       }
-      statusText.textContent = "MIDI ready. Click to start audio.";
-    })
-    .catch(() => {
-      statusText.textContent = "MIDI not available.";
-    });
+      console.log("playNote called with note:", note, "velocity:", velocity);
+      player.queueWaveTable(context, context.destination, pianoPreset, context.currentTime, note, 0.75, velocity / 127);
+      highlightKey(note);
+    }
 
-  function warmUpSoundfont() {
-    console.log("Priming soundfont cache...");
-    const warmupNotes = Array.from({length: 37}, (_, i) => 48 + i);
-    warmupNotes.forEach((note, i) => {
-      const delay = i * 0.03;
-      player.queueWaveTable(
-        context,
-        context.destination,
-        pianoPreset,
-        context.currentTime + delay,
-        note,
-        0.1,
-        0.0001
-      );
-    });
-  }
+    function onMIDIMessage(event) {
+      const [status, note, velocity] = event.data;
+      console.log("MIDI message:", event.data);
+      if (status === 144 && velocity > 0) {
+        blinkLight();
+        playNote(note, velocity);
+      }
+    }
 
-  function resumeAudioContext() {
-    if (context.state !== "running") {
-      console.log("Resuming AudioContext...");
-      context.resume().then(() => {
-        console.log("AudioContext resumed:", context.state);
-        warmUpSoundfont();
-        overlay.style.display = "none";
-        statusText.textContent = "Ready. Play something!";
+    navigator.requestMIDIAccess()
+      .then((access) => {
+        for (let input of access.inputs.values()) {
+          input.onmidimessage = onMIDIMessage;
+          console.log("Connected to MIDI input:", input.name);
+        }
+        statusText.textContent = "MIDI ready. Click to start audio.";
+      })
+      .catch(() => {
+        statusText.textContent = "MIDI not available.";
+      });
+
+    function warmUpSoundfont() {
+      console.log("Priming soundfont cache...");
+      const warmupNotes = Array.from({length: 37}, (_, i) => 48 + i);
+      warmupNotes.forEach((note, i) => {
+        const delay = i * 0.03;
+        player.queueWaveTable(
+          context,
+          context.destination,
+          pianoPreset,
+          context.currentTime + delay,
+          note,
+          0.1,
+          0.0001
+        );
       });
     }
-  }
 
-  overlay.addEventListener("click", resumeAudioContext);
-  window.addEventListener("keydown", resumeAudioContext);
-
-  const keyContainer = document.getElementById("keyboard");
-  const keyMap = {};
-  const whiteNotes = [0, 2, 4, 5, 7, 9, 11];
-  const blackNotes = [1, 3, 6, 8, 10];
-  const whiteKeys = [];
-
-  for (let midi = 60; midi <= 83; midi++) {
-    const note = midi % 12;
-    if (whiteNotes.includes(note)) {
-      const key = document.createElement("div");
-      key.className = "key white";
-      key.dataset.note = midi;
-      key.addEventListener("mousedown", () => playNote(midi, 100));
-      keyContainer.appendChild(key);
-      keyMap[midi] = key;
-      whiteKeys.push({ midi, element: key });
+    function resumeAudioContext() {
+      if (context.state !== "running") {
+        console.log("Resuming AudioContext...");
+        context.resume().then(() => {
+          console.log("AudioContext resumed:", context.state);
+          warmUpSoundfont();
+          overlay.style.display = "none";
+          statusText.textContent = "Ready. Play something!";
+          initNotation();
+        });
+      }
     }
-  }
 
-  for (let i = 0; i < whiteKeys.length - 1; i++) {
-    const current = whiteKeys[i];
-    const next = whiteKeys[i + 1];
-    const midMidi = current.midi + 1;
-    const note = midMidi % 12;
-    if (blackNotes.includes(note)) {
-      const key = document.createElement("div");
-      key.className = "key black";
-      key.dataset.note = midMidi;
-      key.addEventListener("mousedown", () => playNote(midMidi, 100));
-      keyContainer.appendChild(key);
-      keyMap[midMidi] = key;
-      requestAnimationFrame(() => {
-        const left = current.element.offsetLeft;
-        const right = next.element.offsetLeft;
-        const whiteKeyWidth = right - left;
-        key.style.left = `${(left + right) / 2 - 12 + whiteKeyWidth / 2}px`;
-      });
-    }
-  }
+    overlay.addEventListener("click", resumeAudioContext);
+    window.addEventListener("keydown", resumeAudioContext);
 
-  function highlightKey(note) {
-    const key = keyMap[note];
-    if (key) {
-      key.classList.add("active");
-      setTimeout(() => key.classList.remove("active"), 200);
+    const keyContainer = document.getElementById("keyboard");
+    const keyMap = {};
+    const whiteNotes = [0, 2, 4, 5, 7, 9, 11];
+    const blackNotes = [1, 3, 6, 8, 10];
+    const whiteKeys = [];
+
+    for (let midi = 60; midi <= 83; midi++) {
+      const note = midi % 12;
+      if (whiteNotes.includes(note)) {
+        const key = document.createElement("div");
+        key.className = "key white";
+        key.dataset.note = midi;
+        key.addEventListener("mousedown", () => playNote(midi, 100));
+        keyContainer.appendChild(key);
+        keyMap[midi] = key;
+        whiteKeys.push({ midi, element: key });
+      }
     }
-  }
+
+    for (let i = 0; i < whiteKeys.length - 1; i++) {
+      const current = whiteKeys[i];
+      const next = whiteKeys[i + 1];
+      const midMidi = current.midi + 1;
+      const note = midMidi % 12;
+      if (blackNotes.includes(note)) {
+        const key = document.createElement("div");
+        key.className = "key black";
+        key.dataset.note = midMidi;
+        key.addEventListener("mousedown", () => playNote(midMidi, 100));
+        keyContainer.appendChild(key);
+        keyMap[midMidi] = key;
+        requestAnimationFrame(() => {
+          const left = current.element.offsetLeft;
+          const right = next.element.offsetLeft;
+          const whiteKeyWidth = right - left;
+          key.style.left = `${(left + right) / 2 - 12 + whiteKeyWidth / 2}px`;
+        });
+      }
+    }
+
+    function highlightKey(note) {
+      const key = keyMap[note];
+      if (key) {
+        key.classList.add("active");
+        setTimeout(() => key.classList.remove("active"), 200);
+      }
+    }
+
+    function initNotation() {
+      const div = document.getElementById("staff");
+      const renderer = new Vex.Flow.Renderer(div, Vex.Flow.Renderer.Backends.SVG);
+      const context = renderer.getContext();
+      const stave = new Vex.Flow.Stave(10, 40, 400);
+      stave.addClef("treble").addTimeSignature("4/4");
+      stave.setContext(context).draw();
+
+      const notes = [
+        new Vex.Flow.StaveNote({ clef: "treble", keys: ["c/4"], duration: "q" })
+      ];
+
+      const voice = new Vex.Flow.Voice({ num_beats: 4, beat_value: 4 });
+      voice.setStrict(false);
+      voice.addTickables(notes);
+
+      const formatter = new Vex.Flow.Formatter();
+      formatter.joinVoices([voice]).format([voice], 400);
+
+      voice.draw(context, stave);
+    }
+  });
 </script>
 
 </body>
