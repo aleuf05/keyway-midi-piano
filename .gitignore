@@ -1,0 +1,15 @@
+# Node.js (in case you use npm, vite, etc.)
+node_modules/
+dist/
+build/
+
+# Mac/Linux/Windows system files
+.DS_Store
+Thumbs.db
+
+# IDE/editor settings
+.vscode/
+.idea/
+
+# Logs or runtime
+*.log

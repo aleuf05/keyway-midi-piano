@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>MIDI Piano with WebAudioFont</title>
+  <script src="https://surikov.github.io/webaudiofont/npm/dist/WebAudioFontPlayer.js"></script>
+  <script src="https://surikov.github.io/webaudiofontdata/sound/0000_JCLive_sf2_file.js"></script>
+  <style>
+    body {
+      font-family: sans-serif;
+      text-align: center;
+      margin: 0;
+      padding: 0;
+      background: #f5f5f5;
+    }
+
+    h1 {
+      margin-top: 30px;
+      font-size: 1.8em;
+    }
+
+    #status {
+      font-size: 1.1em;
+      margin-bottom: 10px;
+    }
+
+    #midi-light {
+      width: 20px; height: 20px;
+      background-color: gray;
+      border-radius: 50%;
+      display: inline-block;
+      margin-left: 10px;
+    }
+
+    #start-overlay {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0, 0, 0, 0.6);
+      color: white;
+      font-size: 1.5em;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+      cursor: pointer;
+    }
+
+    .keyboard-wrapper {
+      display: flex;
+      justify-content: center;
+      margin: 40px auto;
+      background: #ddd;
+      padding: 10px;
+      border: 2px solid #aaa;
+      border-radius: 10px;
+      width: fit-content;
+    }
+
+    .keyboard {
+      position: relative;
+      height: 120px;
+      display: flex;
+    }
+
+    .key.white {
+      width: 40px;
+      height: 120px;
+      background: linear-gradient(to bottom, #fff, #eee);
+      border: 1px solid #999;
+      border-radius: 4px 4px 0 0;
+      box-shadow: 0 2px 3px rgba(0, 0, 0, 0.2);
+      z-index: 1;
+    }
+
+    .key.black {
+      width: 25px;
+      height: 80px;
+      background: linear-gradient(to bottom, #333, #000);
+      border-radius: 3px;
+      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.5);
+      position: absolute;
+      top: 0;
+      z-index: 2;
+    }
+
+    .key.active {
+      box-shadow: 0 0 8px 2px yellow;
+    }
+  </style>
+</head>
+<body>
+
+<h1>MIDI Piano (WebAudioFont)</h1>
+<p id="status">Initializing...</p>
+<div id="midi-light"></div>
+<div id="start-overlay">Click anywhere to start audio</div>
+<div class="keyboard-wrapper">
+  <div class="keyboard" id="keyboard"></div>
+</div>
+
+<script>
+  const context = new AudioContext();
+  const player = new WebAudioFontPlayer();
+  const pianoPreset = _tone_0000_JCLive_sf2_file;
+
+  let statusText = document.getElementById("status");
+  let overlay = document.getElementById("start-overlay");
+
+  console.log("AudioContext initial state:", context.state);
+
+  function blinkLight() {
+    const light = document.getElementById("midi-light");
+    light.style.backgroundColor = "lime";
+    setTimeout(() => light.style.backgroundColor = "gray", 100);
+  }
+
+  function playNote(note, velocity) {
+    if (context.state !== "running") {
+      console.log("Blocked playNote: AudioContext not running.");
+      return;
+    }
+    console.log("playNote called with note:", note, "velocity:", velocity);
+    player.queueWaveTable(context, context.destination, pianoPreset, context.currentTime, note, 0.75, velocity / 127);
+    highlightKey(note);
+  }
+
+  function onMIDIMessage(event) {
+    const [status, note, velocity] = event.data;
+    console.log("MIDI message:", event.data);
+    if (status === 144 && velocity > 0) {
+      blinkLight();
+      playNote(note, velocity);
+    }
+  }
+
+  navigator.requestMIDIAccess()
+    .then((access) => {
+      for (let input of access.inputs.values()) {
+        input.onmidimessage = onMIDIMessage;
+        console.log("Connected to MIDI input:", input.name);
+      }
+      statusText.textContent = "MIDI ready. Click to start audio.";
+    })
+    .catch(() => {
+      statusText.textContent = "MIDI not available.";
+    });
+
+  function warmUpSoundfont() {
+    console.log("Priming soundfont cache...");
+    const warmupNotes = Array.from({length: 37}, (_, i) => 48 + i);
+    warmupNotes.forEach((note, i) => {
+      const delay = i * 0.03;
+      player.queueWaveTable(
+        context,
+        context.destination,
+        pianoPreset,
+        context.currentTime + delay,
+        note,
+        0.1,
+        0.0001
+      );
+    });
+  }
+
+  function resumeAudioContext() {
+    if (context.state !== "running") {
+      console.log("Resuming AudioContext...");
+      context.resume().then(() => {
+        console.log("AudioContext resumed:", context.state);
+        warmUpSoundfont();
+        overlay.style.display = "none";
+        statusText.textContent = "Ready. Play something!";
+      });
+    }
+  }
+
+  overlay.addEventListener("click", resumeAudioContext);
+  window.addEventListener("keydown", resumeAudioContext);
+
+  const keyContainer = document.getElementById("keyboard");
+  const keyMap = {};
+  const whiteNotes = [0, 2, 4, 5, 7, 9, 11];
+  const blackNotes = [1, 3, 6, 8, 10];
+  const whiteKeys = [];
+
+  for (let midi = 60; midi <= 83; midi++) {
+    const note = midi % 12;
+    if (whiteNotes.includes(note)) {
+      const key = document.createElement("div");
+      key.className = "key white";
+      key.dataset.note = midi;
+      key.addEventListener("mousedown", () => playNote(midi, 100));
+      keyContainer.appendChild(key);
+      keyMap[midi] = key;
+      whiteKeys.push({ midi, element: key });
+    }
+  }
+
+  for (let i = 0; i < whiteKeys.length - 1; i++) {
+    const current = whiteKeys[i];
+    const next = whiteKeys[i + 1];
+    const midMidi = current.midi + 1;
+    const note = midMidi % 12;
+    if (blackNotes.includes(note)) {
+      const key = document.createElement("div");
+      key.className = "key black";
+      key.dataset.note = midMidi;
+      key.addEventListener("mousedown", () => playNote(midMidi, 100));
+      keyContainer.appendChild(key);
+      keyMap[midMidi] = key;
+      requestAnimationFrame(() => {
+        const left = current.element.offsetLeft;
+        const right = next.element.offsetLeft;
+        const whiteKeyWidth = right - left;
+        key.style.left = `${(left + right) / 2 - 12 + whiteKeyWidth / 2}px`;
+      });
+    }
+  }
+
+  function highlightKey(note) {
+    const key = keyMap[note];
+    if (key) {
+      key.classList.add("active");
+      setTimeout(() => key.classList.remove("active"), 200);
+    }
+  }
+</script>
+
+</body>
+</html>
