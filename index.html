@@ -95,6 +95,39 @@
       border: 1px solid #ccc;
       border-radius: 5px;
       padding: 10px;
+      position: relative;
+    }
+
+    .note-highlight {
+      position: absolute;
+      background: rgba(255, 255, 0, 0.3);
+      border: 2px solid rgba(255, 200, 0, 0.8);
+      border-radius: 4px;
+      transition: left 0.5s ease-in-out;
+      pointer-events: none;
+      z-index: 10;
+    }
+
+    #note-feedback {
+      margin: 20px auto;
+      font-size: 1.2em;
+      font-weight: bold;
+      min-height: 30px;
+    }
+
+    .correct {
+      color: green;
+    }
+
+    .incorrect {
+      color: red;
+    }
+
+    .current-note {
+      background-color: #ffff99;
+      padding: 5px 10px;
+      border-radius: 5px;
+      margin: 10px;
     }
   </style>
 </head>
@@ -104,10 +137,17 @@
 <p id="status">Initializing...</p>
 <div id="midi-light"></div>
 <div id="start-overlay">Click anywhere to start audio</div>
+
+<div class="current-note">
+  <p>Current note to play: <span id="target-note">C</span></p>
+</div>
+
 <div class="keyboard-wrapper">
   <div class="keyboard" id="keyboard"></div>
 </div>
+
 <div id="staff"></div>
+<div id="note-feedback"></div>
 
 <script>
   window.addEventListener("DOMContentLoaded", () => {
@@ -116,6 +156,21 @@
     const pianoPreset = _tone_0000_JCLive_sf2_file;
     let statusText = document.getElementById("status");
     let overlay = document.getElementById("start-overlay");
+    let feedbackElement = document.getElementById("note-feedback");
+    let targetNoteElement = document.getElementById("target-note");
+
+    // Note sequence and current position
+    const noteSequence = [
+      { name: "C", midi: 60 },
+      { name: "D", midi: 62 },
+      { name: "E", midi: 64 },
+      { name: "F", midi: 65 },
+      { name: "G", midi: 67 }
+    ];
+    let currentNoteIndex = 0;
+    let staveNotes = [];
+    let noteHighlight = null;
+    let notePositions = [];
 
     console.log("AudioContext initial state:", context.state);
 
@@ -123,6 +178,89 @@
       const light = document.getElementById("midi-light");
       light.style.backgroundColor = "lime";
       setTimeout(() => light.style.backgroundColor = "gray", 100);
+    }
+
+    function checkNote(playedMidi) {
+      const expectedNote = noteSequence[currentNoteIndex];
+      
+      if (playedMidi === expectedNote.midi) {
+        feedbackElement.textContent = `✅ Correct! You played ${expectedNote.name}`;
+        feedbackElement.className = "correct";
+        
+        // Flash the highlight green
+        highlightStaffNote(currentNoteIndex, true);
+        
+        // Move to next note
+        currentNoteIndex = (currentNoteIndex + 1) % noteSequence.length;
+        targetNoteElement.textContent = noteSequence[currentNoteIndex].name;
+        
+        // Update highlight position with a slight delay for visual feedback
+        setTimeout(() => {
+          updateHighlightPosition();
+        }, 300);
+        
+      } else {
+        const playedNoteName = getNoteNameFromMidi(playedMidi);
+        feedbackElement.textContent = `❌ Try again! You played ${playedNoteName}, but the target is ${expectedNote.name}`;
+        feedbackElement.className = "incorrect";
+        
+        // Flash the highlight red
+        highlightStaffNote(currentNoteIndex, false);
+      }
+    }
+
+    function getNoteNameFromMidi(midi) {
+      const noteNames = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+      return noteNames[midi % 12];
+    }
+
+    function updateHighlightPosition() {
+      if (!noteHighlight) return;
+      
+      if (notePositions.length > 0 && notePositions[currentNoteIndex]) {
+        const pos = notePositions[currentNoteIndex];
+        noteHighlight.style.left = `${pos.x}px`;
+        noteHighlight.style.top = `${pos.y}px`;
+        noteHighlight.style.width = `${pos.width}px`;
+        noteHighlight.style.height = `${pos.height}px`;
+        noteHighlight.style.display = 'block';
+        console.log(`Updated highlight to position ${currentNoteIndex}:`, pos);
+      } else {
+        console.log('No position data available for index:', currentNoteIndex);
+        // Show highlight with default position as fallback
+        noteHighlight.style.left = '80px';
+        noteHighlight.style.top = '60px';
+        noteHighlight.style.width = '50px';
+        noteHighlight.style.height = '40px';
+        noteHighlight.style.display = 'block';
+      }
+    }
+
+    function createNoteHighlight() {
+      noteHighlight = document.createElement('div');
+      noteHighlight.className = 'note-highlight';
+      document.getElementById('staff').appendChild(noteHighlight);
+      updateHighlightPosition();
+    }
+
+    function highlightStaffNote(index, isCorrect) {
+      // Add a brief flash effect for feedback
+      if (noteHighlight) {
+        const originalColor = noteHighlight.style.backgroundColor;
+        noteHighlight.style.backgroundColor = isCorrect ? 
+          'rgba(0, 255, 0, 0.5)' : 'rgba(255, 0, 0, 0.5)';
+        
+        setTimeout(() => {
+          noteHighlight.style.backgroundColor = 'rgba(255, 255, 0, 0.3)';
+        }, 300);
+      }
+    }
+
+    function clearStaffHighlights() {
+      // Reset highlight to normal color
+      if (noteHighlight) {
+        noteHighlight.style.backgroundColor = 'rgba(255, 255, 0, 0.3)';
+      }
     }
 
     function playNote(note, velocity) {
@@ -133,6 +271,7 @@
       console.log("playNote called with note:", note, "velocity:", velocity);
       player.queueWaveTable(context, context.destination, pianoPreset, context.currentTime, note, 0.75, velocity / 127);
       highlightKey(note);
+      checkNote(note);
     }
 
     function onMIDIMessage(event) {
@@ -180,7 +319,7 @@
           console.log("AudioContext resumed:", context.state);
           warmUpSoundfont();
           overlay.style.display = "none";
-          statusText.textContent = "Ready. Play something!";
+          statusText.textContent = "Ready. Play the highlighted note!";
           initNotation();
         });
       }
@@ -239,16 +378,27 @@
 
     function initNotation() {
       const div = document.getElementById("staff");
+      div.innerHTML = ""; // Clear any existing content
       const renderer = new Vex.Flow.Renderer(div, Vex.Flow.Renderer.Backends.SVG);
-      const context = renderer.getContext();
-      const stave = new Vex.Flow.Stave(10, 40, 400);
+      renderer.resize(500, 150);
+      const vexContext = renderer.getContext();
+      const stave = new Vex.Flow.Stave(10, 40, 450);
       stave.addClef("treble").addTimeSignature("4/4");
-      stave.setContext(context).draw();
+      stave.setContext(vexContext).draw();
 
+      // Create all 5 notes: C, D, E, F, G with shorter duration to fit
       const notes = [
-        new Vex.Flow.StaveNote({ clef: "treble", keys: ["c/4"], duration: "q" })
+        new Vex.Flow.StaveNote({ clef: "treble", keys: ["c/4"], duration: "8" }),
+        new Vex.Flow.StaveNote({ clef: "treble", keys: ["d/4"], duration: "8" }),
+        new Vex.Flow.StaveNote({ clef: "treble", keys: ["e/4"], duration: "8" }),
+        new Vex.Flow.StaveNote({ clef: "treble", keys: ["f/4"], duration: "8" }),
+        new Vex.Flow.StaveNote({ clef: "treble", keys: ["g/4"], duration: "8" })
       ];
+      
+      // Store references to the notes for highlighting
+      staveNotes = notes;
 
+      // Create a voice that can hold all 5 eighth notes (2.5 beats total)
       const voice = new Vex.Flow.Voice({ num_beats: 4, beat_value: 4 });
       voice.setStrict(false);
       voice.addTickables(notes);
@@ -256,7 +406,80 @@
       const formatter = new Vex.Flow.Formatter();
       formatter.joinVoices([voice]).format([voice], 400);
 
-      voice.draw(context, stave);
+      voice.draw(vexContext, stave);
+
+      // Calculate note positions after rendering
+      setTimeout(() => {
+        calculateNotePositions();
+        createNoteHighlight();
+      }, 200); // Increased delay to ensure VexFlow is fully rendered
+
+      // Set initial target note
+      targetNoteElement.textContent = noteSequence[currentNoteIndex].name;
+    }
+
+    function calculateNotePositions() {
+      const staffDiv = document.getElementById('staff');
+      const svg = staffDiv.querySelector('svg');
+      
+      if (!svg) {
+        console.log('No SVG found');
+        return;
+      }
+      
+      // VexFlow creates note heads as ellipses with specific classes or within note groups
+      // Let's look for all ellipses and filter for note heads
+      const allElements = svg.querySelectorAll('ellipse, circle');
+      console.log('Found elements:', allElements.length);
+      
+      // Filter for actual note heads (VexFlow note heads are typically ellipses with specific attributes)
+      const noteHeads = Array.from(allElements).filter(el => {
+        // VexFlow note heads typically have these characteristics
+        const bbox = el.getBBox();
+        return bbox.width > 5 && bbox.height > 3; // Filter out tiny decorative elements
+      });
+      
+      console.log('Found note heads:', noteHeads.length);
+      
+      notePositions = [];
+      
+      // Sort by x position to ensure left-to-right order
+      const sortedNotes = noteHeads
+        .map(el => ({ element: el, bbox: el.getBBox() }))
+        .sort((a, b) => a.bbox.x - b.bbox.x)
+        .slice(0, 5); // Take first 5 notes
+      
+      sortedNotes.forEach((noteData, index) => {
+        const bbox = noteData.bbox;
+        
+        // Position relative to the staff container, accounting for padding
+        const x = bbox.x + 10 - 20; // Add staff padding, subtract highlight padding
+        const y = bbox.y + 40 - 15; // Add staff top offset, subtract highlight padding  
+        const width = Math.max(bbox.width + 40, 50); // Minimum width of 50px
+        const height = Math.max(bbox.height + 30, 40); // Minimum height of 40px
+        
+        notePositions.push({ x, y, width, height });
+        console.log(`Note ${index}: x=${x}, y=${y}, w=${width}, h=${height}`);
+      });
+      
+      // If we don't have 5 positions, create fallback positions
+      if (notePositions.length < 5) {
+        console.log('Creating fallback positions');
+        notePositions = [];
+        const startX = 80; // Start after clef
+        const noteSpacing = 70; // Space between notes
+        
+        for (let i = 0; i < 5; i++) {
+          notePositions.push({
+            x: startX + (i * noteSpacing),
+            y: 60, // Approximate staff line position
+            width: 50,
+            height: 40
+          });
+        }
+      }
+      
+      console.log('Final note positions:', notePositions);
     }
   });
 </script>
